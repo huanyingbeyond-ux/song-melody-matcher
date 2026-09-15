@@ -1,0 +1,32 @@
+# ===== 构建产物 =====
+build/
+dist_exe/
+dist/
+*.spec.bak
+
+# ===== 生成的数据（用 tools/ 重新生成，不入库）=====
+# 说明：GitHub 单文件 API 上限 1MB，而公开曲库索引约 3.5MB，故不入库。
+# 克隆后运行 `python tools/build_public.py` 即可重新生成。
+public_corpus_index.json
+public_corpus_data.py
+
+# ===== Python =====
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+
+# ===== 日志 / 临时 =====
+*.log
+*.tmp
+_*.py
+melody_headless_result.txt
+
+# ===== 旧版遗留（librosa 版，已弃用）=====
+scripts/
+dist_readme_new.txt
+
+# ===== 生成的本地种子曲库（用 tools/make_seed_corpus.py 生成）=====
+corpus/*.mid
