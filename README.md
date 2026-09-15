@@ -62,10 +62,17 @@ python melody_app.pyw                       # 启动 GUI（无参数 = 图形界
 python melody_app.pyw selftest                       # 自测
 python melody_app.pyw local  corpus/小星星_Twinkle.mid
 python melody_app.pyw compare corpus/小星星_Twinkle.mid corpus/欢乐颂_OdeToJoy.mid
-python melody_app.pyw public  corpus/小星星_Twinkle.mid   # 需先生成公开曲库索引
+python melody_app.pyw public  corpus/小星星_Twinkle.mid   # 需先生成公开曲库索引（发行版 EXE 已内置）
+python melody_app.pyw public-status                   # 查看公开曲库规模/来源
 ```
 
-公开曲库索引（不入库，需自行生成；约 3.3 MB 索引 + 0.6 MB 曲名表）：
+### 更新公开曲库（仅开发机需要）
+
+索引是**构建期产物**：发行版 EXE 里已内置 12,977 首，运行时**不需要** music21，
+所以直接选「查公开开放曲库」即可。程序里的「公开曲库状态」按钮只用于查看规模与位置；
+本机没装 music21 时它不会去重建（会说明原因），避免出现「点了却报失败」的误导。
+
+确需重建（例如换更大的 ABC 曲库、或想覆盖内置数据）时：
 
 ```bash
 pip install music21                                # 仅构建期需要
@@ -73,6 +80,10 @@ python tools/build_public.py
 # 生成：public_corpus_index.json（音程索引）+ public_corpus_titles.json（曲名表）
 #       + public_corpus_data.py（zlib+base85 内嵌模块，供打包 EXE 时内存加载）
 ```
+
+外置索引的加载优先级：**exe（或脚本）同级目录 → 打包临时目录 → 模块目录**。
+也就是说，把 `public_corpus_index.json` + `public_corpus_titles.json` 放在 exe 旁边，
+即可覆盖内置数据，无需重新打包。
 
 打包成单文件 EXE（`build_exe.spec` 已配好，约 27 MB）：
 
