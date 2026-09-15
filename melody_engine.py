@@ -392,9 +392,21 @@ PUBLIC_INDEX_NAME = 'public_corpus_index.json'
 PUBLIC_TITLES_NAME = 'public_corpus_titles.json'
 
 
+def app_dir():
+    """程序所在目录：打包后是 exe 所在目录，源码运行时是脚本目录。
+
+    外置的 public_corpus_index.json 应放在这里——放在 exe 旁边即可覆盖内置曲库。
+    """
+    if getattr(sys, 'frozen', False):
+        return os.path.dirname(os.path.abspath(sys.executable))
+    return os.path.dirname(os.path.abspath(__file__))
+
+
 def resolve_public_index():
+    # 顺序：exe/脚本同级目录（用户可自行替换）→ 打包临时目录 → 模块目录
+    base = app_dir()
     here = os.path.dirname(os.path.abspath(__file__))
-    cands = []
+    cands = [os.path.join(base, PUBLIC_INDEX_NAME)]
     meipass = getattr(sys, '_MEIPASS', '')
     if meipass:
         cands.append(os.path.join(meipass, PUBLIC_INDEX_NAME))
@@ -403,13 +415,14 @@ def resolve_public_index():
     for c in cands:
         if c and os.path.exists(c):
             return c
-    return os.path.join(here, PUBLIC_INDEX_NAME)
+    return os.path.join(base, PUBLIC_INDEX_NAME)
 
 
 def resolve_public_titles():
     """定位公开曲库「曲名表」文件（id -> 可读曲名）。"""
+    base = app_dir()
     here = os.path.dirname(os.path.abspath(__file__))
-    cands = []
+    cands = [os.path.join(base, PUBLIC_TITLES_NAME)]
     meipass = getattr(sys, '_MEIPASS', '')
     if meipass:
         cands.append(os.path.join(meipass, PUBLIC_TITLES_NAME))
@@ -417,7 +430,82 @@ def resolve_public_titles():
     for c in cands:
         if c and os.path.exists(c):
             return c
-    return os.path.join(here, PUBLIC_TITLES_NAME)
+    return os.path.join(base, PUBLIC_TITLES_NAME)
+
+
+def bundled_public_index():
+    """内嵌（随程序打包）的公开曲库索引；取不到返回空字典。"""
+    try:
+        import public_corpus_data
+        return getattr(public_corpus_data, 'PUBLIC_INDEX', {}) or {}
+    except Exception:
+        return {}
+
+
+def bundled_public_titles():
+    try:
+        import public_corpus_data
+        return getattr(public_corpus_data, 'PUBLIC_TITLES', {}) or {}
+    except Exception:
+        return {}
+
+
+def public_index_status(index_path=None):
+    """公开曲库可用性总览：供界面显示状态、判断能否重建。
+
+    返回 source: external（exe 旁的外置索引）/ bundled（程序内嵌）/ none（无）
+    """
+    ip = index_path or resolve_public_index()
+    ext_ok, ext_n, ext_err = False, 0, ''
+    if ip and os.path.exists(ip):
+        try:
+            with open(ip, 'r', encoding='utf-8') as f:
+                ext_n = len(json.load(f))
+            ext_ok = ext_n > 0
+        except Exception as e:
+            ext_err = str(e)
+    bnd_n = len(bundled_public_index())
+    tpath = resolve_public_titles()
+    title_n = 0
+    if os.path.exists(tpath):
+        try:
+            with open(tpath, 'r', encoding='utf-8') as f:
+                title_n = len(json.load(f))
+        except Exception:
+            title_n = 0
+    if not title_n:
+        title_n = len(bundled_public_titles())
+    if ext_ok:
+        total, source = ext_n, 'external'
+    elif bnd_n:
+        total, source = bnd_n, 'bundled'
+    else:
+        total, source = 0, 'none'
+    try:
+        root = _find_music21_corpus()
+    except Exception:
+        root = None
+    mtime = ''
+    try:
+        if ip and os.path.exists(ip):
+            mtime = __import__('time').strftime(
+                '%Y-%m-%d %H:%M', __import__('time').localtime(os.path.getmtime(ip)))
+    except Exception:
+        mtime = ''
+    return {
+        'index_path': ip,
+        'external_exists': ext_ok,
+        'external_count': ext_n,
+        'external_error': ext_err,
+        'bundled_count': bnd_n,
+        'title_count': title_n,
+        'total': total,
+        'source': source,
+        'mtime': mtime,
+        'can_rebuild': bool(root),
+        'corpus_root': root,
+        'frozen': bool(getattr(sys, 'frozen', False)),
+    }
 
 
 def _find_music21_corpus():
@@ -467,11 +555,25 @@ def _abc_title(block):
 def build_public_index(out_path, max_len=600):
     """构建期调用：把 music21 内置曲库的全部 ABC 按曲目拆开，解析为音程索引。
     纯 Python（abc_to_pcs），不调用 music21 解析器，速度快、无重依赖。
-    同时写出「曲名表」public_corpus_titles.json（id -> 真实曲名）。"""
+    同时写出「曲名表」public_corpus_titles.json（id -> 真实曲名）。
+
+    注意：这是「构建期」工具，需要本机装 music21（提供 ABC 曲库）。
+    发行版 EXE 已内置约 1.3 万首索引，日常使用无需调用本函数。
+    """
     import glob as _glob
     root = _find_music21_corpus()
     if not root:
-        raise RuntimeError('未找到 music21 曲库，请先 pip install music21')
+        raise RuntimeError(
+            '本机没有 music21 曲库，无法从零生成索引。\n\n'
+            '原因：公开曲库索引是「打包时」预先生成、并已内置进本程序的'
+            '（约 1.3 万首），所以运行时并不需要 music21——'
+            '这也正是本程序能把体积控制在 27MB、且完全离线可用的原因。\n\n'
+            '只有在你确实要「更新/扩充曲库」时才需要重建，步骤：\n'
+            '  1) 安装曲库来源：pip install music21\n'
+            '  2) 运行：python tools/build_public.py\n'
+            '  3) 重打包：pyinstaller build_exe.spec --noconfirm')
+    if not os.path.isdir(os.path.dirname(os.path.abspath(out_path)) or '.'):
+        os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     idx = {}
     titles = {}
     count = 0
@@ -551,7 +653,8 @@ def public_search(file, public_dir, index_path, top_k=8, rebuild=False, max_len=
         return {'error': '无法提取旋律'}
     idx = load_public_index(index_path, rebuild, max_len)
     if not idx:
-        return {'error': '公开曲库索引未生成，请先点“生成公开曲库索引”（需 music21）',
+        return {'error': '公开曲库索引不可用：外置索引读取失败，程序内也没有内置索引。'
+                         '请见 README「更新公开曲库」重建索引。',
                 'query_len': len(q)}
     titles = load_public_titles(os.path.join(os.path.dirname(index_path), PUBLIC_TITLES_NAME))
     qbg = _bigrams(q)
