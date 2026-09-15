@@ -161,8 +161,8 @@ class App:
                   font=("", 11)).pack(side='left', padx=4)
         tk.Button(act, text="打开曲库文件夹", command=self.open_corpus,
                   width=14).pack(side='left', padx=4)
-        tk.Button(act, text="生成公开曲库索引", command=self.build_public,
-                  width=16).pack(side='left', padx=4)
+        tk.Button(act, text="公开曲库状态", command=self.build_public,
+                  width=14).pack(side='left', padx=4)
         self.status = tk.Label(act, text="", fg="#1565c0")
         self.status.pack(side='left', padx=10)
 
@@ -172,11 +172,12 @@ class App:
         self.out.insert('end', "模式说明：\n"
                         "· 查本地曲库：把你怀疑的歌拖入，与本地 corpus 文件夹比对（往里加 MIDI 扩充）。\n"
                         "· 两曲直接对比：同时拖两首，直接给相似度（最准、最实用；想知道「像不像某首具体的歌」就用它）。\n"
-                        "· 查公开开放曲库：与内置的 1.3 万首「公共领域」旋律比对。\n"
+                        "· 查公开开放曲库：与内置的 1.3 万首「公共领域」旋律比对（索引已随程序内置，无需生成）。\n"
                         "  曲库内容：欧美传统民谣、苏格兰/爱尔兰提琴曲、中国民谣、古典主题、巴赫众赞歌等，\n"
                         "  均属公共领域（无版权），**不含当代流行歌**。结果会显示真实曲名。\n\n"
                         "怎么看结果：公开库以传统/古典旋律为主，流行歌通常不在其中，得低分属正常；\n"
                         "真正判断「是否抄袭」，最靠谱的是用「两曲直接对比」去比那首你怀疑的原曲。\n\n"
+                        "「公开曲库状态」按钮：查看内置曲库规模与位置（不需要点它也能直接查曲库）。\n\n"
                         "免责：本工具为旋律形状相似度辅助，非法律意义上的抄袭鉴定。")
 
         # 免责 footer
@@ -228,23 +229,67 @@ class App:
         os.startfile(CORPUS_DIR)
 
     def build_public(self):
-        if not messagebox.askyesno("生成公开曲库索引",
-                                   "将用 music21 把 15000+ 首开放旋律解析为索引（首次约需十几分钟，仅构建期需要）。继续？"):
+        """公开曲库状态查询 / 需要时重建索引。
+
+        发行版 EXE 已内置约 1.3 万首索引，无需生成——本按钮先报状态；
+        只有在「本机装了 music21」的开发环境里，才提供重建入口。
+        """
+        st = me.public_index_status()
+        src_txt = {'bundled': '程序内置', 'external': 'exe 旁外置索引文件',
+                   'none': '无'}.get(st['source'], '无')
+        total = st['total']
+
+        if not st['can_rebuild']:
+            if total:
+                messagebox.showinfo(
+                    "公开曲库已就绪",
+                    f"无需生成——这份索引是打包时预先生成、并已内置在程序里的。\n\n"
+                    f"· 可用曲目：{total} 首（{src_txt}）\n"
+                    f"· 曲名表：{st['title_count']} 条\n"
+                    f"· 索引位置：{st['index_path']}\n\n"
+                    "直接选「查公开开放曲库」，把歌拖进窗口就能比对。\n\n"
+                    "为什么不能在这里重新生成？\n"
+                    "本机没有安装 music21（程序刻意不带这个库，才把体积从 120MB "
+                    "压到 27MB 并保持完全离线可用），因此无法从零重建索引。\n"
+                    "如需更新/扩充曲库，见 README 的「更新公开曲库」一节。")
+            else:
+                messagebox.showerror(
+                    "无法生成公开曲库索引",
+                    "本机没有 music21 曲库，程序内也没有自带索引，无法生成。\n\n"
+                    "解决办法（需联网，仅构建时一次性）：\n"
+                    "  1) pip install music21\n"
+                    "  2) python tools/build_public.py\n"
+                    "  3) pyinstaller build_exe.spec --noconfirm")
+            return
+
+        if total:
+            if not messagebox.askyesno(
+                    "重建公开曲库索引",
+                    f"当前曲库：{total} 首（{src_txt}）。\n"
+                    f"重建会用本机 music21 曲库重新解析全部旋律，约需十几分钟。\n"
+                    f"（结果写入 exe 所在目录，会覆盖现有外置索引）\n\n"
+                    f"确定重建？"):
+                return
+        elif not messagebox.askyesno(
+                "生成公开曲库索引",
+                "将用 music21 把 15000+ 首开放旋律解析为索引（约需十几分钟）。继续？"):
             return
         self.status.configure(text="正在生成索引…")
         threading.Thread(target=self._build_public, daemon=True).start()
 
     def _build_public(self):
         try:
-            out = os.path.join(HERE, me.PUBLIC_INDEX_NAME)
+            # 写到程序所在目录（打包后即 exe 同级），重启后仍能生效
+            out = os.path.join(me.app_dir(), me.PUBLIC_INDEX_NAME)
             n = me.build_public_index(out)
             self.root.after(0, lambda: self.status.configure(
                 text=f"索引生成完成：{n} 首"))
             self.root.after(0, lambda: messagebox.showinfo(
                 "完成", f"已生成 {n} 首公开曲库索引\n保存到：{out}"))
         except Exception as e:
+            msg = str(e)
             self.root.after(0, lambda: self.status.configure(text="生成失败"))
-            self.root.after(0, lambda: messagebox.showerror("错误", str(e)))
+            self.root.after(0, lambda m=msg: messagebox.showerror("生成失败", m))
 
     def start(self):
         mode = self.mode.get()
@@ -287,7 +332,7 @@ def headless_main():
     import argparse
     ap = argparse.ArgumentParser(description="旋律相似度检测（命令行）")
     ap.add_argument('mode', nargs='?', default='',
-                    help='local / compare / public / selftest')
+                    help='local / compare / public / public-status / selftest')
     ap.add_argument('a', nargs='?', default='')
     ap.add_argument('b', nargs='?', default='')
     args = ap.parse_args()
@@ -295,6 +340,8 @@ def headless_main():
     try:
         if args.mode == 'selftest':
             res = me.self_test()
+        elif args.mode == 'public-status':
+            res = me.public_index_status()
         elif args.mode == 'local':
             res = me.search(args.a, CORPUS_DIR, 5)
         elif args.mode == 'compare':
